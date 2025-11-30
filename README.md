@@ -1,17 +1,62 @@
-# React + Vite
+# Çalışma Saati Takip Uygulaması
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Bu uygulama; kullanıcıların günlük, haftalık ve aylık çalışma saatlerini
+kolayca takip edebilmesi için tasarlanmış modern ve responsive bir zaman
+takip sistemidir. Uygulama React, Context API ve Tailwind CSS
+kullanılarak geliştirilmiştir.
 
-Currently, two official plugins are available:
+## 🚀 Özellikler
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### 📅 Ay Bazlı Otomatik Takvim
 
-## React Compiler
+-   İçinde bulunulan ay otomatik olarak seçilir.
+-   Ay değiştirildiğinde, o aya ait tüm günler otomatik listelenir.
+-   Kullanıcı her gün için **giriş saati**, **çıkış saati** ve isteğe
+    bağlı **öğle molası** süresini girebilir.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## ⏱️ Çalışma Süresi Hesaplama
 
-## Expanding the ESLint configuration
+-   Her gün için girilen saatlerden toplam çalışma süresi otomatik
+    hesaplanır.
+-   Haftalık ve aylık toplam çalışma süreleri anında güncellenir.
+-   Hatalı veri girişine karşı kullanıcı uyarılır.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
-# serifoglu-saat-takip
+## ⚙️ Ayarlar Modülü
+
+Uygulamada bir **ayarlar modalı** bulunur. Bu modülden:
+
+-   Varsayılan **çalışma saati ücreti** belirlenebilir.
+-   Varsayılan **tatil günleri** seçilebilir.
+-   Haftanın her günü için varsayılan **giriş--çıkış saatleri**
+    tanımlanabilir.
+-   Tüm takvime uygulanan genel ayarlar, kullanıcı tarafından gün
+    bazında değiştirilebilir.
+
+## 💾 Veri Yönetimi
+
+-   Kullanıcının girdiği tüm veriler uygulama context'inde tutulur.
+-   UUID ile her güne benzersiz bir kayıt oluşturulur.
+-   Veriler anlık olarak güncellenir ve kullanıcı arayüzüne yansıtılır.
+
+## 🎨 Arayüz ve Deneyim
+
+-   Tailwind CSS ile modern ve sade bir görünüm.
+-   Koyu mod desteği.
+-   Her gün için özel panel, haftalık özet barı, aylık toplam süre
+    alanı.
+-   Kullanıcı dostu, mobil uyumlu tasarım.
+
+## 🧩 Kullanılan Teknolojiler
+
+-   **React**
+-   **Context API**
+-   **useState, useEffect, useCallback, useMemo**
+-   **Tailwind CSS**
+-   **UUID**
+
+## 📌 Gelecek Geliştirmeler (Opsiyonel)
+
+-   PDF veya Excel olarak dışa aktarma.
+-   Çoklu kullanıcı desteği.
+-   Çalışma raporu grafiklerinin eklenmesi.
+-   Sunucu tabanlı veri kaydı (Laravel API entegrasyonu).
