@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { 
-  Calendar, 
-  Clock, 
-  Save, 
-  ChevronLeft, 
-  ChevronRight, 
-  TrendingUp, 
-  BarChart2, 
+import {
+  Calendar,
+  Clock,
+  Save,
+  Download,
+  ChevronLeft,
+  ChevronRight,
+  TrendingUp,
+  BarChart2,
   AlertCircle,
   Trash2,
   Briefcase,
@@ -19,6 +20,40 @@ import {
   Settings,
   X
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import pdfMake from 'pdfmake/build/pdfmake';
+import pdfFonts from 'pdfmake/build/vfs_fonts';
+// Assign vfs in a defensive way because different bundlers export vfs differently
+try {
+  if (pdfFonts) {
+    if (pdfFonts.pdfMake && pdfFonts.pdfMake.vfs) {
+      pdfMake.vfs = pdfFonts.pdfMake.vfs;
+    } else if (pdfFonts.vfs) {
+      pdfMake.vfs = pdfFonts.vfs;
+    } else if (pdfFonts.default && pdfFonts.default.vfs) {
+      pdfMake.vfs = pdfFonts.default.vfs;
+    }
+  }
+} catch (e) {
+  // If assignment fails, leave pdfMake as-is and log warning.
+  console.warn('pdfMake vfs assignment failed:', e);
+}
+
+// Define Roboto font mapping (useful for bold style) if vfs contains Roboto files
+try {
+  if (pdfMake && pdfMake.vfs) {
+    pdfMake.fonts = {
+      Roboto: {
+        normal: 'Roboto-Regular.ttf',
+        bold: 'Roboto-Medium.ttf',
+        italics: 'Roboto-Italic.ttf',
+        bolditalics: 'Roboto-MediumItalic.ttf'
+      }
+    };
+  }
+} catch (e) {
+  console.warn('pdfMake.fonts assignment skipped:', e);
+}
 
 // --- YARDIMCI FONKSİYONLAR ---
 
@@ -64,18 +99,19 @@ const getDaysInMonth = (year, month) => {
 
 const getWeekRange = (date) => {
   const current = new Date(date);
-  const day = current.getDay(); 
-  const diff = current.getDate() - day + (day === 0 ? -6 : 1); 
-  
+  const day = current.getDay();
+  const diff = current.getDate() - day + (day === 0 ? -6 : 1);
+
   const startOfWeek = new Date(current.setDate(diff));
   const endOfWeek = new Date(current.setDate(current.getDate() + 6));
-  
+
   return { start: startOfWeek, end: endOfWeek };
 };
 
 // --- ANA COMPONENT ---
 
 export default function WorkTimeTracker() {
+  const [exportOpen, setExportOpen] = useState(false);
   // State: Koyu Mod (Varsayılan false, localStorage'dan oku)
   const [darkMode, setDarkMode] = useState(() => {
     const savedMode = localStorage.getItem('tracker_darkMode');
@@ -87,7 +123,7 @@ export default function WorkTimeTracker() {
     const savedDate = localStorage.getItem('tracker_lastDate');
     return savedDate ? new Date(savedDate) : new Date();
   });
-  
+
   // State: Seçili Gün
   const [selectedDay, setSelectedDay] = useState(new Date(currentDate));
 
@@ -117,13 +153,13 @@ export default function WorkTimeTracker() {
   // State: Ayarlar Formu (Modal için)
   const [settingsForm, setSettingsForm] = useState(settings);
 
-  const [formData, setFormData] = useState({ 
-    start: '08:00', 
-    end: '', 
+  const [formData, setFormData] = useState({
+    start: '08:00',
+    end: '',
     isOff: false,
     isCustom: false
   });
-  
+
   const [error, setError] = useState('');
   // Toast mesajı için state
   const [toast, setToast] = useState(null); // { type: 'success'|'error', message: string }
@@ -159,10 +195,10 @@ export default function WorkTimeTracker() {
   // Tailwind Config Ayarı (Manuel Dark Mode için 'class' stratejisine zorla)
   useEffect(() => {
     if (typeof window !== 'undefined' && window.tailwind) {
-       window.tailwind.config = {
-          ...window.tailwind.config,
-          darkMode: 'class'
-       };
+      window.tailwind.config = {
+        ...window.tailwind.config,
+        darkMode: 'class'
+      };
     }
   }, []);
 
@@ -192,7 +228,7 @@ export default function WorkTimeTracker() {
   useEffect(() => {
     const key = formatDateKey(selectedDay);
     const data = workData[key];
-    
+
     if (data) {
       setFormData({
         start: data.start || settings.defaultStartTime,
@@ -235,15 +271,15 @@ export default function WorkTimeTracker() {
     daysInMonth.forEach(day => {
       const key = formatDateKey(day);
       const entry = workData[key];
-      
+
       if (entry && entry.isOff) return;
 
       if (entry && entry.start && entry.end) {
         const start = timeToMinutes(entry.start);
         const end = timeToMinutes(entry.end);
-        const duration = end - start; 
+        const duration = end - start;
         const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
-        
+
         if (duration > 0) {
           totalMinutes += duration;
           if (rate > 0) totalEarnings += (duration / 60) * rate;
@@ -269,13 +305,13 @@ export default function WorkTimeTracker() {
     while (current <= end) {
       const key = formatDateKey(current);
       const entry = workData[key];
-      
+
       if (entry && !entry.isOff && entry.start && entry.end) {
         const s = timeToMinutes(entry.start);
         const e = timeToMinutes(entry.end);
         const duration = e - s;
         const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
-        
+
         if (duration > 0) {
           totalMinutes += duration;
           if (rate > 0) totalEarnings += (duration / 60) * rate;
@@ -289,17 +325,167 @@ export default function WorkTimeTracker() {
   const currentDayCalculation = useMemo(() => {
     if (formData.isOff) return { duration: 0, earnings: 0, isOff: true };
     if (!formData.start || !formData.end) return null;
-    
+
     const s = timeToMinutes(formData.start);
     const e = timeToMinutes(formData.end);
     const duration = Math.max(0, e - s);
     const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
     const earnings = (duration / 60) * rate;
-    
+
     return { duration, earnings, isOff: false };
   }, [formData, settings]);
 
   // --- HANDLERS ---
+
+  // Export helpers
+  const formatExportDate = (isoKey) => {
+    // isoKey expected 'YYYY-MM-DD' -> return 'DD.MM.YYYY - Gün'
+    const parts = isoKey.split('-');
+    if (parts.length === 3) {
+      const date = new Date(isoKey);
+      const dayName = getDayName(date);
+      return `${parts[2]}.${parts[1]}.${parts[0]} - ${dayName}`;
+    }
+    return isoKey;
+  };
+
+  const formatExportDuration = (totalMinutes) => {
+    if (!totalMinutes && totalMinutes !== 0) return '';
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (minutes === 0) return `${hours} saat`;
+    return `${hours} saat ${minutes} dk`;
+  };
+
+  const buildExportRows = () => {
+    const entries = Object.keys(workData).sort();
+    let totalMinutes = 0;
+    let totalEarnings = 0;
+
+    // Filter entries to only current month
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth() + 1;
+    const filteredEntries = entries.filter(key => {
+      const [year, month] = key.split('-');
+      return parseInt(year) === currentYear && parseInt(month) === currentMonth;
+    });
+
+    const rows = filteredEntries.map(key => {
+      const entry = workData[key] || {};
+      const isOff = entry.isOff;
+      const start = entry.start || '';
+      const end = entry.end || '';
+      let duration = 0;
+      let earnings = 0;
+      if (!isOff && start && end) {
+        const s = timeToMinutes(start);
+        const e = timeToMinutes(end);
+        duration = Math.max(0, e - s);
+        const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
+        if (rate > 0) earnings = (duration / 60) * rate;
+        totalMinutes += duration;
+        totalEarnings += earnings;
+      }
+
+      return {
+        Tarih: formatExportDate(key),
+        Giriş: isOff ? 'İzinli' : (start || '-'),
+        Çıkış: isOff ? 'İzinli' : (end || '-'),
+        Süre: isOff ? 'İzinli' : (duration || duration === 0 ? formatExportDuration(duration) : '-'),
+        Kazanç: isOff ? '-' : (earnings || earnings === 0 ? formatCurrency(earnings) : '-')
+      };
+    });
+
+    return { rows, totalMinutes, totalEarnings };
+  };
+
+  const exportToExcel = () => {
+    try {
+      const { rows, totalMinutes, totalEarnings } = buildExportRows();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Saatler');
+
+      // Append totals as last row (match columns: Tarih, Giriş, Çıkış, Süre, Kazanç)
+      const totalsRow = {
+        Tarih: 'TOPLAM',
+        Giriş: '-',
+        Çıkış: '-',
+        Süre: formatExportDuration(totalMinutes),
+        Kazanç: formatCurrency(totalEarnings)
+      };
+      XLSX.utils.sheet_add_json(ws, [totalsRow], { skipHeader: true, origin: -1 });
+
+      XLSX.writeFile(wb, 'saatler.xlsx');
+      showToast('success', 'Excel dosyası indiriliyor.');
+    } catch (err) {
+      showToast('error', 'Excel dışa aktarma hatası.');
+      console.error(err);
+    }
+  };
+
+  const exportToPDF = () => {
+    try {
+      const { rows, totalMinutes, totalEarnings } = buildExportRows();
+      const columns = ['Tarih', 'Giriş', 'Çıkış', 'Süre', 'Kazanç'];
+      const body = rows.map(r => columns.map(c => (r[c] !== undefined && r[c] !== null && r[c] !== '') ? String(r[c]) : '-'));
+
+      // totals row (match columns)
+      const totalsRow = ['TOPLAM', '-', '-', formatExportDuration(totalMinutes), formatCurrency(totalEarnings)];
+      body.push(totalsRow);
+
+      const docDefinition = {
+        pageOrientation: 'landscape',
+        content: [
+          { text: 'Saatler', style: 'header' },
+          {
+            table: {
+              headerRows: 1,
+              widths: [150, 60, 60, 60, 60],
+              body: [columns, ...body]
+            },
+            layout: {
+              paddingLeft: function (i, node) { return 3; },
+              paddingRight: function (i, node) { return 3; },
+              paddingTop: function (i, node) { return 2; },
+              paddingBottom: function (i, node) { return 2; },
+              fillColor: function (i, node) {
+                // Zebra striping: alternatif satırlar hafif gri
+                if (i === 0) return '#f3f4f6'; // Header row (light gray)
+                if (i % 2 === 0) return '#f9fafb'; // Even rows (very light gray)
+                return null; // Odd rows (white)
+              }
+            }
+          }
+        ],
+        styles: {
+          header: { fontSize: 16, bold: true, margin: [0, 0, 0, 8], alignment: 'center' }
+        },
+        defaultStyle: { font: 'Roboto', fontSize: 11 }
+      };
+
+      // Create PDF and attempt to download; if download() throws, fallback to blob download
+      try {
+        pdfMake.createPdf(docDefinition).download('saatler.pdf');
+      } catch (downloadErr) {
+        console.warn('pdfMake download() failed, falling back to blob:', downloadErr);
+        pdfMake.createPdf(docDefinition).getBlob((blob) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'saatler.pdf';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        });
+      }
+      showToast('success', 'PDF dosyası indiriliyor.');
+    } catch (err) {
+      showToast('error', 'PDF dışa aktarma hatası.');
+      console.error(err);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -351,9 +537,9 @@ export default function WorkTimeTracker() {
     const newData = { ...workData };
     delete newData[key];
     setWorkData(newData);
-    setFormData({ 
-      start: settings.defaultStartTime, 
-      end: '', 
+    setFormData({
+      start: settings.defaultStartTime,
+      end: '',
       isOff: false,
       isCustom: false
     });
@@ -364,9 +550,9 @@ export default function WorkTimeTracker() {
     setCurrentDate(newDate);
     const today = new Date();
     if (newDate.getMonth() === today.getMonth() && newDate.getFullYear() === today.getFullYear()) {
-        setSelectedDay(today);
+      setSelectedDay(today);
     } else {
-        setSelectedDay(newDate);
+      setSelectedDay(newDate);
     }
   };
 
@@ -379,7 +565,7 @@ export default function WorkTimeTracker() {
 
   const handleSettingsChange = (e) => {
     const { name, value, type, checked } = e.target;
-    
+
     if (name === 'holidayDays') {
       const dayNum = parseInt(value);
       setSettingsForm(prev => ({
@@ -398,14 +584,14 @@ export default function WorkTimeTracker() {
     // Yeni ayarları kaydet
     setSettings(settingsForm);
     localStorage.setItem('tracker_settings', JSON.stringify(settingsForm));
-    
+
     // Varsayılan tatil günlerini ay içinde otomatik olarak işaretle
     const newWorkData = { ...workData };
-    
+
     daysInMonth.forEach(day => {
       const dayOfWeek = day.getDay();
       const key = formatDateKey(day);
-      
+
       if (settingsForm.holidayDays.includes(dayOfWeek)) {
         // Eğer bu gün custom değilse veya zaten kayıtlı değilse, izinli olarak işaretle
         if (!newWorkData[key]?.isCustom) {
@@ -417,12 +603,12 @@ export default function WorkTimeTracker() {
         }
       }
     });
-    
+
     // Varsayılan saatleri custom olmayan günlere uygula
     daysInMonth.forEach(day => {
       const key = formatDateKey(day);
       const entry = newWorkData[key];
-      
+
       if (entry && !entry.isCustom && !entry.isOff) {
         entry.start = settingsForm.defaultStartTime;
         entry.end = settingsForm.defaultEndTime;
@@ -439,7 +625,7 @@ export default function WorkTimeTracker() {
         }
       }
     });
-    
+
     setWorkData(newWorkData);
     console.log('Ayarlar kaydedildi, modal kapatılıyor.');
     setShowSettingsModal(false);
@@ -454,54 +640,72 @@ export default function WorkTimeTracker() {
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans transition-colors duration-300 flex flex-col">
-      
+
       {/* Header */}
       <header className="bg-white dark:bg-slate-800 shadow-sm border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10 transition-colors duration-300">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-center sm:justify-between">
+          <div className="hidden sm:flex items-center gap-2">
             <div className="bg-indigo-600 p-2 rounded-lg text-white shadow-lg shadow-indigo-200 dark:shadow-none">
               <Clock size={24} />
             </div>
-            <h1 className="text-xl font-bold text-slate-800 dark:text-white hidden sm:block">Şerifoğlu Saat Takip</h1>
+            <h1 className="text-xl font-bold text-slate-800 dark:text-white">Şerifoğlu Saat Takip</h1>
           </div>
-          
+
           <div className="flex items-center gap-3">
-              {/* Ay Navigasyonu */}
-              <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 rounded-full p-1 transition-colors duration-300">
-                  <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-full transition-all shadow-sm dark:text-slate-200">
-                  <ChevronLeft size={20} />
-                  </button>
-                  <span className="font-semibold min-w-[130px] text-center text-sm sm:text-base dark:text-slate-200">
-                  {currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
-                  </span>
-                  <button onClick={() => changeMonth(1)} className="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-full transition-all shadow-sm dark:text-slate-200">
-                  <ChevronRight size={20} />
-                  </button>
-              </div>
+            {/* Ay Navigasyonu */}
+            <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-700 rounded-full p-1 transition-colors duration-300">
+              <button onClick={() => changeMonth(-1)} className="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-full transition-all shadow-sm dark:text-slate-200">
+                <ChevronLeft size={20} />
+              </button>
+              <span className="font-semibold min-w-[130px] text-center text-sm sm:text-base dark:text-slate-200">
+                {currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
+              </span>
+              <button onClick={() => changeMonth(1)} className="p-2 hover:bg-white dark:hover:bg-slate-600 rounded-full transition-all shadow-sm dark:text-slate-200">
+                <ChevronRight size={20} />
+              </button>
+            </div>
 
-              {/* Koyu Mod Toggle */}
-              <button 
-                  onClick={() => setDarkMode(!darkMode)}
-                  className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300"
-                  title={darkMode ? "Aydınlık Mod" : "Koyu Mod"}
+            {/* Koyu Mod Toggle */}
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300"
+              title={darkMode ? "Aydınlık Mod" : "Koyu Mod"}
+            >
+              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+
+            {/* Dışarı Aktar Menü */}
+            <div className="relative">
+              <button
+                onClick={() => setExportOpen(prev => !prev)}
+                className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300"
+                title="Dışarı Aktar"
               >
-                  {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+                <Download size={20} />
               </button>
 
-              {/* Ayarlar Butonu */}
-              <button 
-                  onClick={handleOpenSettings}
-                  className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300"
-                  title="Ayarlar"
-              >
-                  <Settings size={20} />
-              </button>
+              {exportOpen && (
+                <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50 overflow-hidden">
+                  <button onClick={() => { exportToExcel(); setExportOpen(false); }} className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700">Excel (.xlsx)</button>
+                  <button onClick={() => { exportToPDF(); setExportOpen(false); }} className="w-full text-left px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-700">PDF (.pdf)</button>
+                </div>
+              )}
+            </div>
+
+            {/* Ayarlar Butonu */}
+            <button
+              onClick={handleOpenSettings}
+              className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300"
+              title="Ayarlar"
+            >
+              <Settings size={20} />
+            </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow w-full">
-        
+
         {/* SOL PANEL: GÜN LİSTESİ */}
         <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-4 h-[calc(100vh-500px)] lg:h-[calc(100vh-200px)] overflow-hidden">
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex-1 flex flex-col overflow-hidden transition-colors duration-300">
@@ -516,17 +720,17 @@ export default function WorkTimeTracker() {
                 const key = formatDateKey(day);
                 const entry = workData[key];
                 const isSelected = formatDateKey(selectedDay) === key;
-                
-                const isTuesday = day.getDay() === 2; 
-                
+
+                const isTuesday = day.getDay() === 2;
+
                 const isOff = entry?.isOff;
                 const hasData = entry && entry.start && entry.end && !isOff;
-                
+
                 let listDuration = "";
                 if (hasData) {
-                    const s = timeToMinutes(entry.start);
-                    const e = timeToMinutes(entry.end);
-                    listDuration = formatDuration(Math.max(0, e - s));
+                  const s = timeToMinutes(entry.start);
+                  const e = timeToMinutes(entry.end);
+                  listDuration = formatDuration(Math.max(0, e - s));
                 }
 
                 return (
@@ -534,11 +738,10 @@ export default function WorkTimeTracker() {
                     key={key}
                     ref={isSelected ? activeDayRef : null}
                     onClick={() => setSelectedDay(day)}
-                    className={`w-full text-left p-3 rounded-lg transition-all border ${
-                      isSelected 
-                        ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:ring-indigo-700' 
+                    className={`w-full text-left p-3 rounded-lg transition-all border ${isSelected
+                        ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:ring-indigo-700'
                         : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-700'
-                    }`}
+                      }`}
                   >
                     <div className="flex justify-between items-center">
                       <div>
@@ -549,11 +752,11 @@ export default function WorkTimeTracker() {
                           {getDayName(day)}
                         </div>
                       </div>
-                      
+
                       {isOff ? (
-                          <span className="text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 px-2 py-1 rounded-md flex items-center gap-1 border border-amber-200 dark:border-amber-800">
-                            <Coffee size={12} /> İzinli
-                          </span>
+                        <span className="text-xs font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 px-2 py-1 rounded-md flex items-center gap-1 border border-amber-200 dark:border-amber-800">
+                          <Coffee size={12} /> İzinli
+                        </span>
                       ) : hasData ? (
                         <span className="text-xs font-bold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-md border border-emerald-200 dark:border-emerald-800">
                           {listDuration}
@@ -571,7 +774,7 @@ export default function WorkTimeTracker() {
 
         {/* SAĞ PANEL: EDİTÖR VE İSTATİSTİKLER */}
         <div className="lg:col-span-8 xl:col-span-9 flex flex-col gap-6">
-          
+
           {/* Giriş Formu */}
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-6 transition-colors duration-300">
             <div className="flex items-center justify-between mb-6 border-b border-slate-100 dark:border-slate-700 pb-4">
@@ -581,44 +784,44 @@ export default function WorkTimeTracker() {
                 </h2>
                 <p className="text-slate-500 dark:text-slate-400">{getDayName(selectedDay)}</p>
               </div>
-              
+
               {currentDayCalculation && (
                 <div className="text-right">
-                   <div className="text-sm text-slate-500 dark:text-slate-400">Durum</div>
-                   {currentDayCalculation.isOff ? (
-                      <div className="text-amber-600 dark:text-amber-500 font-bold flex items-center justify-end gap-1 mt-1">
-                        <Coffee size={20} /> İZİNLİ
-                      </div>
-                   ) : (
-                     <div className="flex flex-col items-end">
-                       <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 leading-none">
-                         {formatDuration(currentDayCalculation.duration)}
-                       </span>
-                       <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400 mt-1 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded border border-emerald-100 dark:border-emerald-800/50">
-                         {formatCurrency(currentDayCalculation.earnings)}
-                       </span>
-                     </div>
-                   )}
+                  <div className="text-sm text-slate-500 dark:text-slate-400">Durum</div>
+                  {currentDayCalculation.isOff ? (
+                    <div className="text-amber-600 dark:text-amber-500 font-bold flex items-center justify-end gap-1 mt-1">
+                      <Coffee size={20} /> İZİNLİ
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-end">
+                      <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 leading-none">
+                        {formatDuration(currentDayCalculation.duration)}
+                      </span>
+                      <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400 mt-1 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-0.5 rounded border border-emerald-100 dark:border-emerald-800/50">
+                        {formatCurrency(currentDayCalculation.earnings)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* İzinli Switch */}
             <div className="mb-6 bg-slate-50 dark:bg-slate-750 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-200 dark:border-slate-600 flex items-center justify-between transition-colors duration-300">
-                <div className="flex items-center gap-2">
-                    <Coffee className="text-amber-600 dark:text-amber-500" size={20} />
-                    <span className="font-medium text-slate-700 dark:text-slate-200">Bugün İzinliyim / Tatil</span>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                    <input 
-                        type="checkbox" 
-                        name="isOff"
-                        checked={formData.isOff}
-                        onChange={handleInputChange}
-                        className="sr-only peer" 
-                    />
-                    <div className="w-11 h-6 bg-slate-200 dark:bg-slate-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 dark:peer-focus:ring-amber-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-                </label>
+              <div className="flex items-center gap-2">
+                <Coffee className="text-amber-600 dark:text-amber-500" size={20} />
+                <span className="font-medium text-slate-700 dark:text-slate-200">Bugün İzinliyim / Tatil</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="isOff"
+                  checked={formData.isOff}
+                  onChange={handleInputChange}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 dark:bg-slate-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 dark:peer-focus:ring-amber-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+              </label>
             </div>
 
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity duration-300 ${formData.isOff ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
@@ -730,7 +933,7 @@ export default function WorkTimeTracker() {
               ✕
             </button>
 
-            
+
           </div>
         </div>
       )}
@@ -745,7 +948,7 @@ export default function WorkTimeTracker() {
                 <Settings size={24} className="text-indigo-600 dark:text-indigo-400" />
                 Ayarlar
               </h3>
-              <button 
+              <button
                 onClick={() => setShowSettingsModal(false)}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
               >
@@ -811,8 +1014,8 @@ export default function WorkTimeTracker() {
                 <div className="bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2">
                   {dayNames.map((day, index) => (
                     <label key={index} className="flex items-center gap-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 p-2 rounded transition-colors">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         name="holidayDays"
                         value={index}
                         checked={settingsForm.holidayDays.includes(index)}
@@ -828,13 +1031,13 @@ export default function WorkTimeTracker() {
 
             {/* Modal Footer */}
             <div className="sticky bottom-0 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700 p-6 flex gap-3">
-              <button 
+              <button
                 onClick={() => setShowSettingsModal(false)}
                 className="flex-1 px-4 py-2 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors font-medium"
               >
                 İptal
               </button>
-              <button 
+              <button
                 onClick={handleSaveSettings}
                 className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
               >
@@ -848,16 +1051,16 @@ export default function WorkTimeTracker() {
 
       {/* Footer - Geliştirici İmzası */}
       <footer className="mt-auto py-8 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 transition-colors duration-300">
-          <div className="max-w-6xl mx-auto px-4 flex flex-col items-center justify-center gap-3">
-              <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 opacity-50">
-                  <Terminal size={16} />
-                  <div className="h-1 w-1 rounded-full bg-slate-400 dark:bg-slate-600"></div>
-                  <Code size={16} />
-              </div>
-              <p className="text-slate-500 dark:text-slate-400 text-sm font-medium flex items-center gap-2 tracking-wide">
-                 Geliştirici <a target='blank' href='https://www.instagram.com/farukksavur/' className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-1 px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 rounded-md shadow-sm border border-indigo-100 dark:border-indigo-800/50">Faruk Savur</a>
-              </p>
+        <div className="max-w-6xl mx-auto px-4 flex flex-col items-center justify-center gap-3">
+          <div className="flex items-center gap-2 text-slate-400 dark:text-slate-600 opacity-50">
+            <Terminal size={16} />
+            <div className="h-1 w-1 rounded-full bg-slate-400 dark:bg-slate-600"></div>
+            <Code size={16} />
           </div>
+          <p className="text-slate-500 dark:text-slate-400 text-sm font-medium flex items-center gap-2 tracking-wide">
+            Geliştirici <a target='blank' href='https://www.instagram.com/farukksavur/' className="text-indigo-600 dark:text-indigo-400 font-bold flex items-center gap-1 px-2 py-1 bg-indigo-50 dark:bg-indigo-900/30 rounded-md shadow-sm border border-indigo-100 dark:border-indigo-800/50">Faruk Savur</a>
+          </p>
+        </div>
       </footer>
 
     </div>
