@@ -1011,6 +1011,7 @@ export default function WorkTimeTracker() {
                   value={formData.start}
                   onChange={handleInputChange}
                   disabled={formData.isOff}
+                  step="900"
                   className="w-full p-3 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-slate-50 dark:bg-slate-900 dark:text-white dark:[color-scheme:dark]"
                 />
               </div>
@@ -1025,6 +1026,7 @@ export default function WorkTimeTracker() {
                   value={formData.end}
                   onChange={handleInputChange}
                   disabled={formData.isOff}
+                  step="900"
                   className="w-full p-3 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-slate-50 dark:bg-slate-900 dark:text-white dark:[color-scheme:dark]"
                 />
               </div>
@@ -1170,6 +1172,7 @@ export default function WorkTimeTracker() {
                   name="defaultStartTime"
                   value={settingsForm.defaultStartTime}
                   onChange={handleSettingsChange}
+                  step="900"
                   className="w-full p-3 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none transition-all bg-slate-50 dark:bg-slate-900 dark:text-white dark:[color-scheme:dark]"
                 />
               </div>
@@ -1186,6 +1189,7 @@ export default function WorkTimeTracker() {
                   name="defaultEndTime"
                   value={settingsForm.defaultEndTime}
                   onChange={handleSettingsChange}
+                  step="900"
                   className="w-full p-3 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-slate-50 dark:bg-slate-900 dark:text-white dark:[color-scheme:dark]"
                 />
               </div>
