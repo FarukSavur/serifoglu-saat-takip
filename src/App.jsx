@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import pdfMake from 'pdfmake/build/pdfmake';
+import Joyride from 'react-joyride';
 import pdfFonts from 'pdfmake/build/vfs_fonts';
 // Assign vfs in a defensive way because different bundlers export vfs differently
 try {
@@ -159,18 +160,7 @@ export default function WorkTimeTracker() {
     };
   });
 
-  // Eğer kullanıcı daha önce ayarları kaydetmemişse, uygulamanın ilk açılışında
-  // ayarlar modalını göster (alanlar boş gelecektir).
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('tracker_settings');
-      if (!saved) {
-        setShowSettingsModal(true);
-      }
-    } catch (e) {
-      // ignore
-    }
-  }, []);
+  // Not: modal artık otomatik açılmayacak. Tur içerisinden modal açılacak.
 
   // State: Ayarlar Modalı Açık/Kapalı
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -208,6 +198,147 @@ export default function WorkTimeTracker() {
     }
     setToast(null);
   };
+
+  // --- Tour (react-joyride) ---
+  // Tur sadece ilk defa gösterilmemişse otomatik başlayacak.
+  const [runTour, setRunTour] = useState(() => {
+    try { return !localStorage.getItem('tracker_tour_shown'); } catch (e) { return false; }
+  });
+
+  const tourSteps = [
+    // Header / quick actions
+    {
+      target: '.tour-settings-btn',
+      title: 'Ayarlar',
+      content: 'Ayarlar penceresini açar (saatlik ücret, varsayılan saatler, tatil günleri).'
+    },
+    {
+      target: '.tour-export-btn',
+      title: 'Dışarı Aktar',
+      content: 'Excel veya PDF olarak ay içindeki saatlerinizi dışarı aktarın.'
+    },
+    {
+      target: '.tour-dark-btn',
+      title: 'Koyu/Aydınlık Mod',
+      content: 'Uygulamanın görünümünü değiştirmek için burayı kullanın.'
+    },
+    // Main app areas
+    {
+      target: '#tour-day-list',
+      title: 'Gün Listesi',
+      content: 'Ay içindeki günleri burada görüntüleyip seçebilirsiniz.'
+    },
+    {
+      target: '#tour-isOff',
+      title: 'İzinli Gün',
+      content: 'Seçili gün izinliyse burada "İZİNLİ" etiketi görünür; bu, o günün çalışılmadığını belirtir.'
+    },
+    {
+      target: '#start-time',
+      title: 'Giriş Saati',
+      content: 'Seçili gün için giriş saatinizi buraya girin.'
+    },
+    {
+      target: '#end-time',
+      title: 'Çıkış Saati',
+      content: 'Seçili gün için çıkış saatinizi buraya girin.'
+    },
+    {
+      target: '#save-button',
+      title: 'Kaydet',
+      content: 'Yaptığınız değişiklikleri kaydetmek için bu butona tıklayın.'
+    },
+    // Stats
+    {
+      target: '#tour-weekly',
+      title: 'Haftalık Toplam',
+      content: 'Bu kart bu haftaki toplam çalışma süresini ve kazancı gösterir.'
+    },
+    {
+      target: '#tour-monthly',
+      title: 'Aylık Toplam',
+      content: 'Bu kart ay içindeki toplam çalışma süresini ve kazancı gösterir.'
+    },
+    {
+      target: '#tour-average',
+      title: 'Günlük Ortalama',
+      content: 'Bu kart, çalışılan günler üzerinden günlük ortalama süreyi gösterir.'
+    },
+    // Modal steps (these will open the modal when the step is about to show)
+    {
+      target: '#modal-hourlyRate',
+      title: 'Saatlik Ücret',
+      content: 'Saatlik ücretinizi buraya girin; boş bırakırsanız hesaplama yapılmaz.'
+    },
+    {
+      target: '#modal-defaultStartTime',
+      title: 'Varsayılan Giriş Saati',
+      content: 'Varsayılan giriş saati (isteğe bağlı).'
+    },
+    {
+      target: '#modal-defaultEndTime',
+      title: 'Varsayılan Çıkış Saati',
+      content: 'Varsayılan çıkış saati (isteğe bağlı).'
+    },
+    {
+      target: '#modal-holidayDays',
+      title: 'Varsayılan Tatil Günleri',
+      content: 'Haftanın hangi günlerini tatil yapmak istediğinizi seçin.'
+    }
+  ];
+
+  const handleJoyrideCallback = (data) => {
+    const { status, action, step, type } = data || {};
+
+    // Eğer modal içindeki adımlara geliniyorsa modalın açılmasını sağla
+    if (type === 'step:before' && step?.target && String(step.target).startsWith('#modal-')) {
+      try { setShowSettingsModal(true); } catch (e) { }
+      return;
+    }
+
+    // Eğer kullanıcı modal içindeki "Varsayılan Tatil Günleri" adımındayken
+    // İleri'ye basarsa modalı kapat ki bir sonraki adım ana sayfadaki
+    // elementlere odaklansın.
+    if (type === 'step:after' && step?.target === '#modal-holidayDays' && action === 'next') {
+      try { setShowSettingsModal(false); } catch (e) { }
+      return;
+    }
+
+    if (status === 'finished' || status === 'skipped') {
+      try { localStorage.setItem('tracker_tour_shown', 'true'); } catch (e) { }
+      setRunTour(false);
+      showToast('success', 'Tur tamamlandı.', 2000);
+    }
+  };
+
+  // Joyride'ı doğrudan başlatmak yerine, ilk adımın hedef elementi DOM'da
+  // mevcut olduğunda çalıştır. Bu, "Cannot read properties of null (reading 'nodeName')"
+  // hatasını önler.
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('tracker_tour_shown')) return;
+    } catch (e) {
+      // ignore
+    }
+
+    const firstTarget = tourSteps && tourSteps.length ? tourSteps[0].target : null;
+    if (!firstTarget) return;
+
+    const startIfReady = () => {
+      try {
+        const el = document.querySelector(firstTarget);
+        if (el) {
+          setRunTour(true);
+        }
+      } catch (e) {
+        // selector may be invalid or document not ready
+      }
+    };
+
+    // No-op: we no longer delay starting the tour based on first target.
+    // Tour will start immediately if `runTour` is true and steps target elements
+    // present in DOM (modal-opening handled in callback).
+  }, [showSettingsModal, tourSteps]);
 
   useEffect(() => {
     return () => {
@@ -300,9 +431,9 @@ export default function WorkTimeTracker() {
       if (entry && entry.isOff) return;
 
       if (entry && entry.start && entry.end) {
-      const start = timeToMinutes(entry.start);
-      const end = timeToMinutes(entry.end);
-      const duration = computeDurationMinutes(start, end);
+        const start = timeToMinutes(entry.start);
+        const end = timeToMinutes(entry.end);
+        const duration = computeDurationMinutes(start, end);
         const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
 
         if (duration > 0) {
@@ -669,6 +800,16 @@ export default function WorkTimeTracker() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans transition-colors duration-300 flex flex-col">
 
+      <Joyride
+        steps={tourSteps}
+        run={runTour}
+        continuous={true}
+        showSkipButton={true}
+        callback={handleJoyrideCallback}
+        styles={{ options: { zIndex: 10000 } }}
+        locale={{ back: 'Geri', close: 'Kapat', last: 'Bitir', next: 'İleri', skip: 'Atla' }}
+      />
+
       {/* Header */}
       <header className="bg-white dark:bg-slate-800 shadow-sm border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10 transition-colors duration-300">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-center sm:justify-between">
@@ -696,7 +837,7 @@ export default function WorkTimeTracker() {
             {/* Koyu Mod Toggle */}
             <button
               onClick={() => setDarkMode(!darkMode)}
-              className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300"
+              className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300 tour-dark-btn"
               title={darkMode ? "Aydınlık Mod" : "Koyu Mod"}
             >
               {darkMode ? <Sun size={20} /> : <Moon size={20} />}
@@ -706,7 +847,7 @@ export default function WorkTimeTracker() {
             <div className="relative">
               <button
                 onClick={() => setExportOpen(prev => !prev)}
-                className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300"
+                className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300 tour-export-btn"
                 title="Dışarı Aktar"
               >
                 <Download size={20} />
@@ -723,7 +864,7 @@ export default function WorkTimeTracker() {
             {/* Ayarlar Butonu */}
             <button
               onClick={handleOpenSettings}
-              className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300"
+              className="p-2 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-100 dark:hover:bg-indigo-900 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors duration-300 tour-settings-btn"
               title="Ayarlar"
             >
               <Settings size={20} />
@@ -743,7 +884,7 @@ export default function WorkTimeTracker() {
                 Günler
               </h2>
             </div>
-            <div className="overflow-y-auto flex-1 p-2 space-y-1 custom-scrollbar scroll-smooth">
+            <div id="tour-day-list" className="overflow-y-auto flex-1 p-2 space-y-1 custom-scrollbar scroll-smooth">
               {daysInMonth.map((day) => {
                 const key = formatDateKey(day);
                 const entry = workData[key];
@@ -768,8 +909,8 @@ export default function WorkTimeTracker() {
                     ref={isSelected ? activeDayRef : null}
                     onClick={() => setSelectedDay(day)}
                     className={`w-full text-left p-3 rounded-lg transition-all border ${isSelected
-                        ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:ring-indigo-700'
-                        : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-700'
+                      ? 'bg-indigo-50 dark:bg-indigo-900/30 border-indigo-200 dark:border-indigo-700 shadow-sm ring-1 ring-indigo-200 dark:ring-indigo-700'
+                      : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-700'
                       }`}
                   >
                     <div className="flex justify-between items-center">
@@ -814,10 +955,11 @@ export default function WorkTimeTracker() {
                 <p className="text-slate-500 dark:text-slate-400">{getDayName(selectedDay)}</p>
               </div>
 
-              {currentDayCalculation && (
-                <div className="text-right">
-                  <div className="text-sm text-slate-500 dark:text-slate-400">Durum</div>
-                  {currentDayCalculation.isOff ? (
+              <div className="text-right">
+                <div className="text-sm text-slate-500 dark:text-slate-400">Durum</div>
+
+                {currentDayCalculation ? (
+                  currentDayCalculation.isOff ? (
                     <div className="text-amber-600 dark:text-amber-500 font-bold flex items-center justify-end gap-1 mt-1">
                       <Coffee size={20} /> İZİNLİ
                     </div>
@@ -830,13 +972,18 @@ export default function WorkTimeTracker() {
                         {formatCurrency(currentDayCalculation.earnings)}
                       </span>
                     </div>
-                  )}
-                </div>
-              )}
+                  )
+                ) : (
+                  <div>
+                    <div className="sr-only" aria-hidden="true">İZİNLİ</div>
+                    <div className="text-sm text-slate-500 dark:text-slate-400 mt-1">Süre ve kazanç hesaplanamadı</div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* İzinli Switch */}
-            <div className="mb-6 bg-slate-50 dark:bg-slate-750 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-200 dark:border-slate-600 flex items-center justify-between transition-colors duration-300">
+            <div id="tour-isOff" className="mb-6 bg-slate-50 dark:bg-slate-750 dark:bg-slate-700/50 p-3 rounded-lg border border-slate-200 dark:border-slate-600 flex items-center justify-between transition-colors duration-300">
               <div className="flex items-center gap-2">
                 <Coffee className="text-amber-600 dark:text-amber-500" size={20} />
                 <span className="font-medium text-slate-700 dark:text-slate-200">Bugün İzinliyim / Tatil</span>
@@ -854,7 +1001,9 @@ export default function WorkTimeTracker() {
             </div>
 
             <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 transition-opacity duration-300 ${formData.isOff ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
-              <div className="space-y-2">
+              <div className="space-y-2"
+                id="start-time"
+              >
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block">Giriş Saati</label>
                 <input
                   type="time"
@@ -866,11 +1015,13 @@ export default function WorkTimeTracker() {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-2"
+                id="end-time">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block">Çıkış Saati</label>
                 <input
                   type="time"
                   name="end"
+
                   value={formData.end}
                   onChange={handleInputChange}
                   disabled={formData.isOff}
@@ -889,6 +1040,7 @@ export default function WorkTimeTracker() {
             <div className="mt-8 flex items-center gap-3">
               <button
                 onClick={handleSave}
+                id="save-button"
                 className="flex-1 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white py-3 px-6 rounded-lg font-medium flex items-center justify-center gap-2 transition-colors shadow-lg shadow-indigo-200 dark:shadow-none"
               >
                 <Save size={20} />
@@ -907,7 +1059,7 @@ export default function WorkTimeTracker() {
           {/* İstatistik Kartları */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Haftalık */}
-            <div className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-start gap-4 transition-colors duration-300">
+            <div id="tour-weekly" className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-start gap-4 transition-colors duration-300">
               <div className="bg-blue-100 dark:bg-blue-900/30 p-3 rounded-lg text-blue-600 dark:text-blue-400 mt-1">
                 <TrendingUp size={24} />
               </div>
@@ -922,7 +1074,7 @@ export default function WorkTimeTracker() {
             </div>
 
             {/* Aylık Toplam */}
-            <div className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-start gap-4 transition-colors duration-300">
+            <div id="tour-monthly" className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-start gap-4 transition-colors duration-300">
               <div className="bg-emerald-100 dark:bg-emerald-900/30 p-3 rounded-lg text-emerald-600 dark:text-emerald-400 mt-1">
                 <Briefcase size={24} />
               </div>
@@ -937,7 +1089,7 @@ export default function WorkTimeTracker() {
             </div>
 
             {/* Aylık Ortalama */}
-            <div className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-start gap-4 transition-colors duration-300">
+            <div id="tour-average" className="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex items-start gap-4 transition-colors duration-300">
               <div className="bg-violet-100 dark:bg-violet-900/30 p-3 rounded-lg text-violet-600 dark:text-violet-400 mt-1">
                 <BarChart2 size={24} />
               </div>
@@ -988,13 +1140,14 @@ export default function WorkTimeTracker() {
             {/* Modal Content */}
             <div className="p-6 space-y-6">
               {/* Saatlik Ücret */}
-              <div className="space-y-2">
+              <div id="modal-hourlyRate" className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                   <Wallet size={18} className="text-emerald-600 dark:text-emerald-400" />
                   Saatlik Ücret (€)
                 </label>
                 <input
                   type="number"
+                  id="modal-hourlyRate-input"
                   name="hourlyRate"
                   placeholder="Örn: 10"
                   value={settingsForm.hourlyRate}
@@ -1005,7 +1158,9 @@ export default function WorkTimeTracker() {
               </div>
 
               {/* Varsayılan Giriş Saati */}
-              <div className="space-y-2">
+              <div className="space-y-2"
+                id="modal-defaultStartTime"
+              >
                 <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                   <Sun size={18} className="text-amber-600 dark:text-amber-400" />
                   Varsayılan Giriş Saati
@@ -1020,13 +1175,14 @@ export default function WorkTimeTracker() {
               </div>
 
               {/* Varsayılan Çıkış Saati */}
-              <div className="space-y-2">
+              <div className="space-y-2" id="modal-defaultEndTime">
                 <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                   <Moon size={18} className="text-indigo-600 dark:text-indigo-400" />
                   Varsayılan Çıkış Saati
                 </label>
                 <input
                   type="time"
+
                   name="defaultEndTime"
                   value={settingsForm.defaultEndTime}
                   onChange={handleSettingsChange}
@@ -1035,7 +1191,7 @@ export default function WorkTimeTracker() {
               </div>
 
               {/* Varsayılan Tatil Günleri */}
-              <div className="space-y-3">
+              <div className="space-y-3" id="modal-holidayDays">
                 <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
                   <Coffee size={18} className="text-amber-600 dark:text-amber-500" />
                   Varsayılan Tatil Günleri
