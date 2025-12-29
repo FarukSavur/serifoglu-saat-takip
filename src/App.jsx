@@ -83,6 +83,18 @@ const timeToMinutes = (timeStr) => {
   return hours * 60 + minutes;
 };
 
+// Başlangıç ve bitiş dakikaları verildiğinde sürenin dakika cinsinden
+// doğru hesaplanması. Eğer bitiş, başlangıçtan küçükse vardiya geceye
+// taşmış kabul edilip ertesi günün zamanı olarak hesaplanır.
+const computeDurationMinutes = (startMins, endMins) => {
+  if (typeof startMins !== 'number' || typeof endMins !== 'number') return 0;
+  if (startMins === endMins) return 0; // aynı zaman -> 0 dakika
+  if (endMins < startMins) {
+    return (24 * 60 - startMins) + endMins;
+  }
+  return endMins - startMins;
+};
+
 const getDayName = (date) => {
   return new Intl.DateTimeFormat('tr-TR', { weekday: 'long' }).format(date);
 };
@@ -140,12 +152,25 @@ export default function WorkTimeTracker() {
   const [settings, setSettings] = useState(() => {
     const saved = localStorage.getItem('tracker_settings');
     return saved ? JSON.parse(saved) : {
-      defaultStartTime: '08:00',
-      defaultEndTime: '17:00',
+      defaultStartTime: '',
+      defaultEndTime: '',
       hourlyRate: '',
       holidayDays: [] // 0=Pazar, 1=Pazartesi, ..., 6=Cumartesi
     };
   });
+
+  // Eğer kullanıcı daha önce ayarları kaydetmemişse, uygulamanın ilk açılışında
+  // ayarlar modalını göster (alanlar boş gelecektir).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('tracker_settings');
+      if (!saved) {
+        setShowSettingsModal(true);
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
   // State: Ayarlar Modalı Açık/Kapalı
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -275,9 +300,9 @@ export default function WorkTimeTracker() {
       if (entry && entry.isOff) return;
 
       if (entry && entry.start && entry.end) {
-        const start = timeToMinutes(entry.start);
-        const end = timeToMinutes(entry.end);
-        const duration = end - start;
+      const start = timeToMinutes(entry.start);
+      const end = timeToMinutes(entry.end);
+      const duration = computeDurationMinutes(start, end);
         const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
 
         if (duration > 0) {
@@ -309,7 +334,7 @@ export default function WorkTimeTracker() {
       if (entry && !entry.isOff && entry.start && entry.end) {
         const s = timeToMinutes(entry.start);
         const e = timeToMinutes(entry.end);
-        const duration = e - s;
+        const duration = computeDurationMinutes(s, e);
         const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
 
         if (duration > 0) {
@@ -328,7 +353,7 @@ export default function WorkTimeTracker() {
 
     const s = timeToMinutes(formData.start);
     const e = timeToMinutes(formData.end);
-    const duration = Math.max(0, e - s);
+    const duration = computeDurationMinutes(s, e);
     const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
     const earnings = (duration / 60) * rate;
 
@@ -380,7 +405,7 @@ export default function WorkTimeTracker() {
       if (!isOff && start && end) {
         const s = timeToMinutes(start);
         const e = timeToMinutes(end);
-        duration = Math.max(0, e - s);
+        duration = computeDurationMinutes(s, e);
         const rate = settings.hourlyRate ? parseFloat(settings.hourlyRate) : 0;
         if (rate > 0) earnings = (duration / 60) * rate;
         totalMinutes += duration;
@@ -507,10 +532,11 @@ export default function WorkTimeTracker() {
       if (!formData.isOff && formData.start && formData.end) {
         const startMins = timeToMinutes(formData.start);
         const endMins = timeToMinutes(formData.end);
-        if (startMins >= endMins) {
+        if (startMins === endMins) {
           setError('Çıkış saati giriş saatinden sonra olmalıdır.');
           return;
         }
+        // Eğer end < start ise geceye taşan vardiya olarak kabul edilir, geçerli.
       }
 
       const key = formatDateKey(selectedDay);
@@ -604,27 +630,29 @@ export default function WorkTimeTracker() {
       }
     });
 
-    // Varsayılan saatleri custom olmayan günlere uygula
-    daysInMonth.forEach(day => {
-      const key = formatDateKey(day);
-      const entry = newWorkData[key];
+    // Varsayılan saatleri yalnızca kullanıcı her iki saati de girmişse uygula
+    if (settingsForm.defaultStartTime && settingsForm.defaultEndTime) {
+      daysInMonth.forEach(day => {
+        const key = formatDateKey(day);
+        const entry = newWorkData[key];
 
-      if (entry && !entry.isCustom && !entry.isOff) {
-        entry.start = settingsForm.defaultStartTime;
-        entry.end = settingsForm.defaultEndTime;
-      } else if (!entry) {
-        // Boş gün olsa ve tatil günü değilse, varsayılan saatleri koy
-        const dayOfWeek = day.getDay();
-        if (!settingsForm.holidayDays.includes(dayOfWeek)) {
-          newWorkData[key] = {
-            start: settingsForm.defaultStartTime,
-            end: settingsForm.defaultEndTime,
-            isOff: false,
-            isCustom: false
-          };
+        if (entry && !entry.isCustom && !entry.isOff) {
+          entry.start = settingsForm.defaultStartTime;
+          entry.end = settingsForm.defaultEndTime;
+        } else if (!entry) {
+          // Boş gün olsa ve tatil günü değilse, varsayılan saatleri koy
+          const dayOfWeek = day.getDay();
+          if (!settingsForm.holidayDays.includes(dayOfWeek)) {
+            newWorkData[key] = {
+              start: settingsForm.defaultStartTime,
+              end: settingsForm.defaultEndTime,
+              isOff: false,
+              isCustom: false
+            };
+          }
         }
-      }
-    });
+      });
+    }
 
     setWorkData(newWorkData);
     console.log('Ayarlar kaydedildi, modal kapatılıyor.');
@@ -730,7 +758,8 @@ export default function WorkTimeTracker() {
                 if (hasData) {
                   const s = timeToMinutes(entry.start);
                   const e = timeToMinutes(entry.end);
-                  listDuration = formatDuration(Math.max(0, e - s));
+                  const dur = computeDurationMinutes(s, e);
+                  listDuration = formatDuration(dur);
                 }
 
                 return (
@@ -967,7 +996,7 @@ export default function WorkTimeTracker() {
                 <input
                   type="number"
                   name="hourlyRate"
-                  placeholder="Örn: 12.50"
+                  placeholder="Örn: 10"
                   value={settingsForm.hourlyRate}
                   onChange={handleSettingsChange}
                   className="w-full p-3 border border-slate-200 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all bg-slate-50 dark:bg-slate-900 dark:text-white"
